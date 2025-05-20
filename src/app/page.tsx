@@ -17,14 +17,18 @@ interface Country {
 }
 
 interface Recommendation {
-  symptoms: string[];
   medicines: {
     name: string;
+    brands: string[];
     description: string;
     instructions: string;
     contraindications: string;
   }[];
-  aiRecommendation: string;
+  analysis: string;
+  precautions: string;
+  whenToSeeDoctor: string;
+  whereToBuy?: string;
+  pharmacies?: { name: string; address: string; mapsUrl: string }[];
   disclaimer: string;
 }
 
@@ -41,6 +45,7 @@ export default function Home() {
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [customSymptom, setCustomSymptom] = useState<string>("");
+  const [otherChecked, setOtherChecked] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -66,6 +71,24 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setRecommendation(null);
+    // Obtener ubicación
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          await fetchRecommendation(position.coords.latitude, position.coords.longitude);
+        },
+        async () => {
+          // Usuario negó ubicación
+          await fetchRecommendation(null, null);
+        }
+      );
+    } else {
+      await fetchRecommendation(null, null);
+    }
+  };
+
+  const fetchRecommendation = async (lat: number | null, lng: number | null) => {
     try {
       const response = await fetch("/api/recommend", {
         method: "POST",
@@ -81,6 +104,9 @@ export default function Home() {
           customSymptom,
           language,
           country: country?.code,
+          latitude: lat,
+          longitude: lng,
+          otherChecked,
         }),
       });
       if (!response.ok) throw new Error("Failed to get recommendation");
@@ -216,6 +242,16 @@ export default function Home() {
                   </span>
                 </label>
               ))}
+              {/* Checkbox Otros */}
+              <label className="flex items-center space-x-2 p-2 rounded-lg hover:bg-purple-50 cursor-pointer transition">
+                <input
+                  type="checkbox"
+                  checked={otherChecked}
+                  onChange={(e) => setOtherChecked(e.target.checked)}
+                  className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                />
+                <span className="text-sm text-purple-900">{language === 'en' ? 'Other' : 'Otros'}</span>
+              </label>
             </div>
           </div>
 
@@ -230,7 +266,11 @@ export default function Home() {
               onChange={(e) => setCustomSymptom(e.target.value)}
               placeholder={language === "en" ? "Describe your symptoms..." : "Describe tus síntomas..."}
               className="w-full px-4 py-2 border-2 border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white text-purple-700"
+              required={otherChecked}
             />
+            {otherChecked && !customSymptom && (
+              <span className="text-red-500 text-xs">{language === 'en' ? 'Please describe your symptoms.' : 'Por favor describe tus síntomas.'}</span>
+            )}
           </div>
 
           {/* Age & Pregnancy */}
@@ -306,9 +346,9 @@ export default function Home() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={selectedSymptoms.length === 0 || isLoading}
+            disabled={(!otherChecked && selectedSymptoms.length === 0) || (otherChecked && !customSymptom) || isLoading}
             className={`w-full py-3 px-4 rounded-xl text-white font-bold text-lg shadow-md transition-all duration-200 ${
-              selectedSymptoms.length === 0 || isLoading
+              (!otherChecked && selectedSymptoms.length === 0) || (otherChecked && !customSymptom) || isLoading
                 ? "bg-purple-200 cursor-not-allowed"
                 : "bg-gradient-to-r from-purple-500 to-purple-700 hover:from-purple-600 hover:to-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-400"
             }`}
@@ -326,22 +366,17 @@ export default function Home() {
             <div className="space-y-6">
               <div>
                 <h3 className="text-lg font-semibold text-purple-600 mb-2">
-                  {t.selectedSymptoms}
-                </h3>
-                <ul className="list-disc list-inside text-purple-900">
-                  {recommendation.symptoms.map((symptom, index) => (
-                    <li key={index}>{symptom}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-purple-600 mb-2">
                   {t.recommendedMedicines}
                 </h3>
                 <ul className="space-y-3">
                   {recommendation.medicines.map((medicine, index) => (
                     <li key={index} className="bg-purple-50 border border-purple-100 rounded-lg p-4">
                       <div className="font-bold text-purple-800 text-base mb-1">{medicine.name}</div>
+                      {medicine.brands && medicine.brands.length > 0 && (
+                        <div className="text-xs text-purple-600 mb-1">
+                          <span className="font-semibold">{language === 'en' ? 'Brands' : 'Marcas'}:</span> {medicine.brands.join(', ')}
+                        </div>
+                      )}
                       <div className="text-sm text-purple-700 mb-1">{medicine.description}</div>
                       <div className="text-xs text-purple-500 mb-1">
                         <span className="font-semibold">Instructions:</span> {medicine.instructions}
@@ -355,12 +390,54 @@ export default function Home() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-purple-600 mb-2">
-                  {t.aiAnalysis}
+                  {language === 'en' ? 'AI Analysis' : 'Análisis de IA'}
                 </h3>
                 <p className="text-purple-900 whitespace-pre-line bg-purple-50 rounded-lg p-4 border border-purple-100">
-                  {recommendation.aiRecommendation}
+                  {recommendation.analysis}
                 </p>
               </div>
+              <div>
+                <h3 className="text-lg font-semibold text-purple-600 mb-2">
+                  {language === 'en' ? 'Precautions & Warnings' : 'Precauciones y advertencias'}
+                </h3>
+                <p className="text-purple-900 whitespace-pre-line bg-purple-50 rounded-lg p-4 border border-purple-100">
+                  {recommendation.precautions}
+                </p>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-purple-600 mb-2">
+                  {language === 'en' ? 'When to See a Doctor' : 'Cuándo consultar a un médico'}
+                </h3>
+                <p className="text-purple-900 whitespace-pre-line bg-purple-50 rounded-lg p-4 border border-purple-100">
+                  {recommendation.whenToSeeDoctor}
+                </p>
+              </div>
+              {recommendation.whereToBuy && (
+                <div>
+                  <h3 className="text-lg font-semibold text-purple-600 mb-2">
+                    {language === 'en' ? 'Where to Buy' : 'Dónde comprar'}
+                  </h3>
+                  <p className="text-purple-900 whitespace-pre-line bg-purple-50 rounded-lg p-4 border border-purple-100">
+                    {recommendation.whereToBuy}
+                  </p>
+                </div>
+              )}
+              {recommendation.pharmacies && recommendation.pharmacies.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-purple-600 mb-2">
+                    {language === 'en' ? 'Nearby Pharmacies' : 'Farmacias Cercanas'}
+                  </h3>
+                  <ul className="space-y-2">
+                    {recommendation.pharmacies.map((ph, idx) => (
+                      <li key={idx} className="flex flex-col md:flex-row md:items-center gap-2 bg-purple-50 border border-purple-100 rounded-lg p-3">
+                        <span className="font-semibold text-purple-800">{ph.name}</span>
+                        <span className="text-purple-700 text-sm">{ph.address}</span>
+                        <a href={ph.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-purple-600 underline font-medium ml-2">Google Maps</a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="mt-6 p-4 bg-yellow-50 rounded-md border border-yellow-200">
                 <p className="text-sm text-yellow-800">{recommendation.disclaimer}</p>
               </div>
